@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Uji koneksi database – SusuPasar</title>
+<style>
+body{margin:0;background:#0d1626;color:#eaf1fb;font:16px/1.5 system-ui,sans-serif}
+.w{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:22px}
+button{font:inherit;background:#6b95ff;color:#0a1530;border:0;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer}
+pre{background:#15233b;border:1px solid #26385a;border-radius:10px;padding:12px;white-space:pre-wrap;word-break:break-word}
+.ok{color:#3fd1a8;font-weight:700}.bad{color:#ff8a8a;font-weight:700}.m{color:#9fb0c7;font-size:14px}
+</style>
+</head>
+<body>
+<div class="w">
+  <h1>Uji koneksi database</h1>
+  <p class="m">Halaman ini mengirim satu pesanan contoh (nama "Uji Coba") ke database Anda dan menampilkan hasilnya apa adanya. Pesanan itu akan muncul di halaman admin; ubah statusnya jadi Dibatalkan setelah selesai.</p>
+  <p id="cfg" class="m"></p>
+  <button id="go">Kirim pesanan uji</button>
+  <p id="res"></p>
+  <pre id="raw" hidden></pre>
+</div>
+<script src="config.js"></script>
+<script>
+const C=window.SP_CONFIG||{},$=id=>document.getElementById(id);
+$("cfg").textContent="Database terpilih: "+(C.backend||"(tidak ada)")+(C.backend==="supabase"?" | "+(C.supabase||{}).url:C.backend==="firebase"?" | proyek "+(C.firebase||{}).projectId:"");
+$("go").onclick=async()=>{
+  const res=$("res"),raw=$("raw");res.className="";res.textContent="Mengirim...";raw.hidden=true;
+  const no="TES-"+Date.now().toString().slice(-6);
+  try{
+    let r;
+    if(C.backend==="supabase"){
+      const k=String(C.supabase.anonKey);
+      r=await fetch(C.supabase.url+"/rest/v1/orders",{method:"POST",headers:{apikey:k,...(k.startsWith("sb_")?{}:{Authorization:"Bearer "+k}),"Content-Type":"application/json",Prefer:"return=minimal"},
+        body:JSON.stringify({no,name:"Uji Coba",phone:"08000000000",address:"Alamat uji coba",city:"Bandung",zip:"40000",note:"",courier:"JNE Reguler",pay:"DANA",fee:0,total:10000,status:"baru",items:[{id:0,q:1,n:"Pesanan uji",p:10000}]})});
+    }else if(C.backend==="firebase"){
+      const t=v=>({stringValue:String(v)}),n=v=>({integerValue:String(v)});
+      r=await fetch("https://firestore.googleapis.com/v1/projects/"+C.firebase.projectId+"/databases/(default)/documents/orders?key="+C.firebase.apiKey,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({fields:{no:t(no),name:t("Uji Coba"),phone:t("08000000000"),address:t("Alamat uji coba"),city:t("Bandung"),zip:t("40000"),note:t(""),courier:t("JNE Reguler"),pay:t("DANA"),fee:n(0),total:n(10000),status:t("baru"),items:t("[]"),createdAt:{timestampValue:new Date().toISOString()}}})});
+    }else{res.className="bad";res.textContent="Database belum dipilih di config.js (backend masih \"none\").";return}
+    const body=await r.text();
+    if(r.ok){res.className="ok";res.textContent="BERHASIL ("+r.status+"). Pesanan "+no+" sudah masuk. Cek di halaman admin."}
+    else{res.className="bad";res.textContent="GAGAL (kode "+r.status+"). Lihat pesan di bawah."}
+    raw.textContent=body||"(tidak ada pesan)";raw.hidden=false;
+  }catch(e){res.className="bad";res.textContent="Tidak bisa terhubung ke database. Periksa alamat proyek di config.js dan koneksi internet.";raw.textContent=String(e);raw.hidden=false}
+};
+</script>
+</body>
+</html>
