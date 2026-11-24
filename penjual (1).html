@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Portal penjual – SusuPasar</title>
+<style>
+:root{--bg:#f4f8fc;--s:#fff;--ink:#12233f;--mu:#5b6b82;--ln:#dbe4ef;--br:#1d4ed8;--bi:#fff;color-scheme:light}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1626;--s:#15233b;--ink:#eaf1fb;--mu:#9fb0c7;--ln:#26385a;--br:#6b95ff;--bi:#0a1530;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,sans-serif}
+.w{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:18px;margin:16px 0 8px}
+input,select,textarea{padding:8px 10px;border:1px solid var(--ln);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;max-width:100%}
+input[type=text],input[type=email],input[type=password],textarea{width:100%;margin:4px 0 10px}
+input[type=checkbox]{width:auto}
+button{font:inherit;cursor:pointer;border:1px solid var(--ln);background:var(--s);color:var(--ink);border-radius:8px;padding:8px 14px}
+button.p{background:var(--br);color:var(--bi);border-color:var(--br)}
+.c{background:var(--s);border:1px solid var(--ln);border-radius:12px;padding:12px;margin-bottom:10px}
+.m{color:var(--mu);font-size:14px}.r{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.a{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.e{color:#d64545;min-height:22px}.ok{color:#12805c}
+.th{width:44px;height:44px;border-radius:8px;object-fit:cover;flex:none;background:var(--ln);display:inline-block}
+.fm[data-k="um"] .f-cu,.fm[data-k="cu"] .f-um{display:none}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;display:none;z-index:50;font-size:14px;max-width:90%}
+.toast.on{display:block}
+</style>
+</head>
+<body>
+<div class="w">
+  <h1>Portal penjual</h1>
+  <p class="m">Jual produk Anda di SusuPasar. Daftar akun, ajukan toko Anda, dan setelah disetujui admin Anda bisa memasang produk sendiri.</p>
+
+  <div id="auth">
+    <div class="c">
+      <label for="em">Email</label><input id="em" type="email" autocomplete="username">
+      <label for="pw">Kata sandi (minimal 8 karakter)</label><input id="pw" type="password" autocomplete="current-password">
+      <div class="e" id="err" role="alert"></div>
+      <div class="a"><button class="p" id="login">Masuk</button><button id="signup">Daftar akun baru</button></div>
+    </div>
+  </div>
+
+  <div id="app" hidden>
+    <div class="r"><span class="m" id="who"></span><button id="logout">Keluar</button></div>
+    <div id="view"></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<input type="file" id="phIn" accept="image/*" tabindex="-1" aria-hidden="true" style="position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0">
+<script src="config.js"></script>
+<script src="sp.js"></script>
+<script>
+const {$,esc,clean,req,toast}=SP;
+let seller=null,mine=[],pending=null,sent=false;
+
+function setErr(m,good){const e=$("err");e.textContent=m||"";e.className="e"+(good?" ok":"")}
+async function doLogin(){
+  setErr("");
+  if(!SP.ok){setErr("config.js belum diisi (backend supabase).");return}
+  try{await SP.signIn($("em").value.trim(),$("pw").value);$("pw").value="";await enter()}catch(e){setErr(e.message)}
+}
+async function doSignup(){
+  setErr("");
+  if(!SP.ok){setErr("config.js belum diisi (backend supabase).");return}
+  const em=$("em").value.trim(),pw=$("pw").value;
+  if(!em||pw.length<8){setErr("Isi email dan kata sandi minimal 8 karakter.");return}
+  try{const r=await SP.signUp(em,pw);$("pw").value="";if(r.session)await enter();else setErr("Akun dibuat. Cek email Anda untuk konfirmasi, lalu masuk di sini.",true)}catch(e){setErr(e.message)}
+}
+async function enter(){
+  const me=SP.me();if(!me){return}
+  $("who").textContent=me.email;
+  try{
+    const s=await req("GET","/rest/v1/sellers?user_id=eq."+encodeURIComponent(me.id)+"&select=*");seller=(s&&s[0])||null;
+    if(seller){mine=(await req("GET","/rest/v1/products?seller_id=eq."+encodeURIComponent(me.id)+"&select=*&order=id.asc"))||[]}
+    else{const q=await req("GET","/rest/v1/seller_requests?user_id=eq."+encodeURIComponent(me.id)+"&select=*");pending=(q&&q[0])||null}
+  }catch(e){logout("Gagal memuat data: "+String(e.message).slice(0,140));return}
+  $("auth").hidden=true;$("app").hidden=false;draw();
+}
+function logout(m){SP.signOut();seller=null;mine=[];pending=null;$("app").hidden=true;$("auth").hidden=false;setErr(m||"")}
+
+function draw(){
+  const v=$("view");
+  if(!seller){
+    if(pending||sent){v.innerHTML=`<div class="c"><b>Permintaan terkirim</b><div class="m">Toko "${esc(pending?pending.shop:"")}" menunggu persetujuan admin. Kembali ke halaman ini setelah disetujui.</div></div>`;return}
+    v.innerHTML=`<div class="c"><b>Ajukan toko Anda</b><label for="rN">Nama Anda</label><input type="text" id="rN" maxlength="60"><label for="rS">Nama toko</label><input type="text" id="rS" maxlength="40"><label for="rC">Kota</label><input type="text" id="rC" maxlength="30"><label for="rT">Catatan untuk admin (boleh kosong)</label><input type="text" id="rT" maxlength="120"><button class="p" id="rGo">Kirim permintaan</button></div>`;return}
+  v.innerHTML=`<h2>Toko: ${esc(seller.shop)} ${seller.active?"":'<span class="m">(dinonaktifkan admin)</span>'}</h2>
+  <p class="m">Produk Anda tampil di etalase. Pesanan diproses admin; rekap penjualan dan komisi ada di admin. Perbarui stok dan harga di sini.</p>`+
+  SP.formHtml("n")+`<h2>Produk saya (${mine.length})</h2>`+(mine.length?mine.map(p=>SP.productRow(p,"Toko Anda")).join(""):'<div class="m">Belum ada produk.</div>');
+}
+async function reload(){const me=SP.me();mine=(await req("GET","/rest/v1/products?seller_id=eq."+encodeURIComponent(me.id)+"&select=*&order=id.asc"))||[];draw()}
+
+$("login").onclick=doLogin;$("signup").onclick=doSignup;$("logout").onclick=()=>logout();
+$("pw").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});
+SP.initPicker();SP.bindForm($("view"));
+
+$("view").addEventListener("change",async e=>{
+  if(!e.target.dataset.f)return;
+  try{const r=await SP.saveField(e.target);if(r){const p=mine.find(x=>x.id===r.id);if(p)Object.assign(p,r.patch)}}catch(err){toast("Gagal: "+err.message)}
+});
+$("view").addEventListener("click",async e=>{
+  const b=e.target.closest("button");if(!b)return;
+  const me=SP.me();
+  try{
+    if(b.id==="rGo"){
+      const shop=clean($("rS").value);if(!shop){toast("Isi nama toko");return}
+      await req("POST","/rest/v1/seller_requests?on_conflict=user_id",[{user_id:me.id,name:clean($("rN").value),email:me.email,shop,city:clean($("rC").value),note:clean($("rT").value)}],{Prefer:"resolution=merge-duplicates,return=minimal"});
+      sent=true;pending={shop};draw();return}
+    if(b.id==="nAdd"){
+      const row=SP.readForm("n");row.seller_id=me.id;
+      if(SP.PEND.n){toast("Mengunggah foto...");row.image_url=await SP.upload(SP.PEND.n,me.id)}
+      await req("POST","/rest/v1/products",[row],{Prefer:"return=minimal"});SP.PEND.n=null;toast("Produk ditambahkan");await reload();return}
+    const a=b.dataset.act,id=b.dataset.id;if(!a)return;
+    if(a==="photo")SP.pick(async blob=>{toast("Mengunggah foto...");const url=await SP.upload(blob,me.id);await req("PATCH","/rest/v1/products?id=eq."+encodeURIComponent(id),{image_url:url},{Prefer:"return=minimal"});toast("Foto disimpan");await reload()});
+    else if(a==="rmphoto"){await req("PATCH","/rest/v1/products?id=eq."+encodeURIComponent(id),{image_url:""},{Prefer:"return=minimal"});await reload()}
+    else if(a==="del"){if(confirm("Hapus produk ini?")){await req("DELETE","/rest/v1/products?id=eq."+encodeURIComponent(id),undefined,{Prefer:"return=minimal"});await reload()}}
+  }catch(err){toast("Gagal: "+err.message)}
+});
+if(SP.hasSession())enter();
+</script>
+</body>
+</html>
